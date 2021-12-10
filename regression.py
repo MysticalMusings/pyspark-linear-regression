@@ -18,18 +18,12 @@ def readPointBatch(iterator):
     return [matrix]
 
 
-def gradient_w(matrix, w, b):
+def gradient(matrix, param):
     Y = matrix[:, :1]
     X = matrix[:, 1:].T
-    Y_h = X.T@w + b
-    return (X@(Y_h - Y))
-
-
-def gradient_b(matrix, w, b):
-    Y = matrix[:, :1]
-    X = matrix[:, 1:].T
-    Y_h = X.T@w + b
-    return np.sum(Y_h - Y)
+    X = np.vstack([X, np.ones((1, X.shape[1]))])
+    Y_h = X.T@param
+    return (X@(Y_h - Y)).sum(1)
 
 
 def add(x, y):
@@ -54,27 +48,22 @@ if __name__ == "__main__":
     print(points.count())
     iterations = int(sys.argv[3])
     N = int(sys.argv[2])
-    w = 2 * np.random.ranf(size=(D, 1)) - 1
-    b = 2 * np.random.ranf() - 1
+    param = 2 * np.random.ranf(size=(D+1, 1)) - 1
 
-    print("Initial w: " + str(w))
-    print("Initial b: " + str(b))
+    print("Initial param:\n" + str(param))
 
     start = time.time()
 
     for i in range(iterations):
         print("On iteration %i" % (i + 1))
-        dw = points.map(lambda m: gradient_w(m, w, b)).reduce(add).reshape(D, 1)
-        db = points.map(lambda m: gradient_b(m, w, b)).reduce(add)
-        w -= dw*lr/N
-        b -= db*lr/N
-        print("w:\n", w)
-        print('b:\n', b)
+        grad = points.map(lambda m: gradient(m, param)
+                          ).reduce(add).reshape(D+1, 1)
+        param -= grad*lr/N
+        print("param:\n", param)
 
     end = time.time()
 
-    print("Final w:\n" + str(w))
-    print("Final b:\n" + str(b))
+    print("Final param:\n" + str(param))
     print("time: " + str(end - start)+' s')
 
     spark.stop()
