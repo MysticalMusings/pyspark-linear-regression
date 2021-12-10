@@ -31,6 +31,17 @@ def add(x, y):
     return x
 
 
+def standardize(matrix):
+    Y = matrix[:, :1]
+    X = matrix[:, 1:].T
+    X_std = (X-mean) / std
+    return np.hstack([Y, X_std.T])
+
+
+def recover(w, b):
+    return w/std, b - np.sum(w*mean/std)
+
+
 if __name__ == "__main__":
 
     if len(sys.argv) != 4:
@@ -48,7 +59,16 @@ if __name__ == "__main__":
     print(points.count())
     iterations = int(sys.argv[3])
     N = int(sys.argv[2])
-    param = 2 * np.random.ranf(size=(D+1, 1)) - 1
+    # param = 2 * np.random.ranf(size=(D+1, 1)) - 1
+    # 测试使用参数
+    param = np.array([[0.5], [0.5], [0]])
+
+    # 标准化
+    mean = points.map(lambda m: m[:, 1:].sum(0)).sum()/N
+    std = np.sqrt(points.map(lambda m: ((m[:, 1:]-mean)**2).sum(0)).sum()/N)
+    mean = mean.reshape(D, 1)
+    std = std.reshape(D, 1)
+    points = points.map(lambda m: standardize(m))
 
     print("Initial param:\n" + str(param))
 
@@ -59,11 +79,12 @@ if __name__ == "__main__":
         grad = points.map(lambda m: gradient(m, param)
                           ).reduce(add).reshape(D+1, 1)
         param -= grad*lr/N
-        print("param:\n", param)
-
+        print("param:\n", param, '\n')
     end = time.time()
 
-    print("Final param:\n" + str(param))
+    w, b = recover(param[:-1], param[-1])
+    print("Final w:\n" + str(w))
+    print("Final b:\n" + str(b))
     print("time: " + str(end - start)+' s')
 
     spark.stop()

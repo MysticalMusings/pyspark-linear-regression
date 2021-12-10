@@ -36,13 +36,25 @@ def mathod_result(d):
     return np.linalg.inv(A.T@A)@A.T@b
 
 
-def linear_regression(data, iterations=100, lr=0.004, mathod=False):
+def standardize(x, mean, std):
+    return (x-mean)/std
+
+
+def recover(x, w, b, mean, std):
+    return x*std+mean, w/std, b - np.sum(w*mean/std)
+
+
+def linear_regression(data, iterations=100, lr=0.004, stdize=False, mathod=False):
     x = data[:, 1:].T
     y = data[:, :1]
     n = data.shape[0]
 
     mean = None
     std = None
+    if stdize:
+        mean = np.mean(x, 1).reshape(x.shape[0], 1)
+        std = np.std(x, 1).reshape(x.shape[0], 1)
+        x = standardize(x, mean, std)
 
     w_h = np.array([[0.5], [0.5]])
     b_h = 0
@@ -60,6 +72,9 @@ def linear_regression(data, iterations=100, lr=0.004, mathod=False):
         print('b:\n', b_h)
         # print('w is', w_h, 'b is', b_h, 'loss:', np.sum((y_h-y)**2)/n)
 
+    if stdize:
+        x, w_h, b_h = recover(x, w_h, b_h, mean, std)
+
     print('final w is\n', w_h)
     print('final b is\n', b_h)
     if mathod:
@@ -74,4 +89,4 @@ def linear_regression(data, iterations=100, lr=0.004, mathod=False):
 # data = np.hstack([y, x.T])
 data = init_fromtxt('points.txt')
 
-linear_regression(data, 1000, lr=0.02, mathod=1)
+linear_regression(data, 10, lr=0.02, stdize=1, mathod=1)
