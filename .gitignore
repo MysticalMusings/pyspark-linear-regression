@@ -1,0 +1,6 @@
+points*.txt
+*words*
+test*
+/.vscode
+/result
+/tmp
