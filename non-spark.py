@@ -1,32 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-
-
-D = 2
-
-
-def init_data(w, b, n):
-    xs = np.arange(-10, 10, 20/n)
-    ys = np.zeros_like(xs)
-    for i in range(n):
-        ys[i] = w*xs[i] + b + (np.random.random()-0.35)/3*(w*xs[i] + b)
-    return np.array([xs, ys])
-
-
-def init_fromtxt(file):
-    strs = list(open(file, 'r').read().split('\n'))
-    matrix = np.zeros((len(strs), D+1))
-    for i, s in enumerate(strs):
-        matrix[i] = np.fromstring(
-            s.replace(',', ' '), dtype=np.float32, sep=' ')
-    return np.array(matrix)
-
-
-def plot(d, d_h):
-    plt.plot(d[:, 1:], d[:, 0], 'ro')
-    plt.plot(d_h[0], d_h[1], 'b-')
-    plt.show()
+from utils import points_fromtxt
+import sys
 
 
 def mathod_result(d):
@@ -56,11 +32,11 @@ def linear_regression(data, iterations=100, lr=0.004, stdize=False, mathod=False
         std = np.std(x, 1).reshape(x.shape[0], 1)
         x = standardize(x, mean, std)
 
-    w_h = np.array([[0.5], [0.5]])
+    D = x.shape[0]
+    w_h = np.array([[0.5]]*D)
     b_h = 0
     y_h = np.zeros_like(y)
 
-    start = time.time()
     for i in range(iterations):
         print("On iteration %i" % (i + 1))
         y_h = x.T@w_h + b_h
@@ -79,7 +55,7 @@ def linear_regression(data, iterations=100, lr=0.004, stdize=False, mathod=False
     print('final b is\n', b_h)
     if mathod:
         r = mathod_result(data)
-        print('mathematic: w is', r[:-1], 'b is', r[-1])
+        print('\nmathematic:\nw is', r[:-1], '\nb is', r[-1])
     # plot(data, np.array([x.T, x.T@w_h + b_h]))
 
 
@@ -87,6 +63,10 @@ def linear_regression(data, iterations=100, lr=0.004, stdize=False, mathod=False
 # Weights = np.array([[3, 10]]).reshape(2, 1)
 # y = x.T@Weights+5
 # data = np.hstack([y, x.T])
-data = init_fromtxt('points.txt')
 
-linear_regression(data, 10, lr=0.02, stdize=1, mathod=1)
+start = time.time()
+
+data = points_fromtxt(sys.argv[1])
+linear_regression(data, int(sys.argv[2]), lr=0.02, stdize=1, mathod=1)
+end = time.time()
+print("time: " + str(end - start)+' s')

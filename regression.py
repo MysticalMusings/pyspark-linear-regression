@@ -1,90 +1,166 @@
 import sys
 import numpy as np
+import os
 from pyspark.sql import SparkSession
+from pyspark import SparkConf
 import time
 
-# 维数
-D = 2
-# 学习率
-lr = 0.02
 
+class PySparkLR:
+    def __init__(self, input, mode, iterations=10):
+        if mode == "":
+            mode = 'default'
+        self.mode = mode
+        base = os.path.basename(input)
+        filename = os.path.splitext(base)[0]
+        self.input = input
+        try:
+            iterations = int(iterations)
+        except:
+            iterations = 10
 
-def readPointBatch(iterator):
-    strs = list(iterator)
-    matrix = np.zeros((len(strs), D + 1))
-    for i, s in enumerate(strs):
-        matrix[i] = np.fromstring(
-            s.replace(',', ' '), dtype=np.float32, sep=' ')
-    return [matrix]
+        modeInPath = mode.replace('[', '').replace(']', '')
+        self.outputTimePath = '/results/{}/{}_{}_time.txt'.format(
+            filename, modeInPath, iterations)
+        self.outputWeightsPath = '/results/{}/{}_{}_weights.txt'.format(
+            filename, modeInPath, iterations)
+        self.iterations = iterations
+        self.N = int(filename.split('_')[0])
+        self.D = int(filename.split('_')[1])
 
+    def readPointBatch(self, iterator):
+        strs = list(iterator)
+        matrix = np.zeros((len(strs), self.D + 1))
+        for i, s in enumerate(strs):
+            matrix[i] = np.fromstring(
+                s.replace(',', ' '), dtype=np.float32, sep=' ')
+        return [matrix]
 
-def gradient(matrix, param):
-    Y = matrix[:, :1]
-    X = matrix[:, 1:].T
-    X = np.vstack([X, np.ones((1, X.shape[1]))])
-    Y_h = X.T@param
-    return (X@(Y_h - Y)).sum(1)
+    def gradient(self, matrix, param):
+        Y = matrix[:, :1]
+        X = matrix[:, 1:].T
+        X = np.vstack([X, np.ones((1, X.shape[1]))])
+        Y_h = X.T@param
+        return (X@(Y_h - Y)).sum(1)
 
+    def add(self, x, y):
+        x += y
+        return x
 
-def add(x, y):
-    x += y
-    return x
+    def standardize(self, points):
+        def process(matrix):
+            Y = matrix[:, :1]
+            X = matrix[:, 1:].T
+            X_std = (X-self.mean) / self.std
+            return np.hstack([Y, X_std.T])
+        mean = points.map(lambda m: m[:, 1:].sum(0)).sum()/self.N
+        std = np.sqrt(points.map(lambda m: (
+            (m[:, 1:]-mean)**2).sum(0)).sum()/self.N)
+        self.mean = mean.reshape(self.D, 1)
+        self.std = std.reshape(self.D, 1)
+        return points.map(lambda m: process(m))
 
+    def recover(self, param):
+        param = param.copy()
+        w = param[:-1].copy()
+        b = param[-1].copy()
+        param[:-1] = w/self.std
+        param[-1] = b - np.sum(w*self.mean/self.std)
+        return param
 
-def standardize(matrix):
-    Y = matrix[:, :1]
-    X = matrix[:, 1:].T
-    X_std = (X-mean) / std
-    return np.hstack([Y, X_std.T])
+    def linearRegression(self, lr=0.02, standardization=True):
+        if self.mode != "default" and self.mode != "yarn":
+            conf = SparkConf().setMaster(self.mode)
+            spark = SparkSession.builder.config(conf=conf).getOrCreate()
+        else:
+            spark = SparkSession\
+                .builder\
+                .appName("linear_regression")\
+                .getOrCreate()
+        Path = spark.sparkContext._jvm.org.apache.hadoop.fs.Path
+        FileSystem = spark.sparkContext._jvm.org.apache.hadoop.fs.FileSystem
 
+        # create FileSystem and Path objects
+        hadoopConfiguration = spark.sparkContext._jsc.hadoopConfiguration()
+        hadoopFs = FileSystem.get(hadoopConfiguration)
 
-def recover(w, b):
-    return w/std, b - np.sum(w*mean/std)
+        # create datastream and write out file
+        outputTimeStream = hadoopFs.create(Path(self.outputTimePath))
+        outputWeightsStream = hadoopFs.create(Path(self.outputWeightsPath))
+
+        start = time.time()
+        points = spark.read.text(self.input).rdd.map(lambda r: r[0])\
+            .mapPartitions(self.readPointBatch).cache()
+
+        # param = 2 * np.random.ranf(size=(D+1, 1)) - 1
+        # 测试使用参数
+        param = np.zeros((self.D+1, 1))
+        param[:-1] = np.array([[0.5]]*self.D)
+
+        # 标准化
+        if standardization:
+            points = self.standardize(points)
+
+        timeStr = "{}:\t{} s\n"
+        checkpoint = time.time()
+        prepTime = timeStr.format("prepTime", str(checkpoint-start))
+        print(prepTime)
+        outputTimeStream.write(prepTime.encode('utf-8'))
+
+        print("Initial param:\n" + str(param))
+
+        # 迭代
+        for i in range(self.iterations):
+            print("On iteration %i" % (i + 1))
+            grad = points.map(lambda m: self.gradient(m, param)
+                              ).reduce(self.add).reshape(self.D+1, 1)
+            param -= grad*lr/self.N
+            print("param:\n", param, '\n')
+            if standardization:
+                tmp = self.recover(param)
+            else:
+                tmp = param
+            outputWeightsStream.write(' '.join(str(x)
+                                      for x in tmp.reshape(tmp.size)).encode('utf-8'))
+            outputWeightsStream.write('\n'.encode('utf-8'))
+
+        end = time.time()
+        iterateTime = timeStr.format("iterateTime", str(end-checkpoint))
+        print(iterateTime)
+        outputTimeStream.write(iterateTime.encode('utf-8'))
+
+        if standardization:
+            param = self.recover(param)
+        print("Final w:\n" + str(param[:-1]))
+        print("Final b:\n" + str(param[-1]))
+        print()
+
+        totalTime = timeStr.format("totalTime", str(end-start))
+        print(totalTime)
+        outputTimeStream.write(totalTime.encode('utf-8'))
+        outputTimeStream.write(
+            ("Final w:\n" + str(param[:-1])).encode('utf-8'))
+        outputTimeStream.write(
+            ("\nFinal b:\n" + str(param[-1])).encode('utf-8'))
+
+        outputTimeStream.close()
+        outputWeightsStream.close()
+        spark.stop()
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 4:
-        print("Usage: linear_regression <file> <Number of samples> <iterations>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(
+            "Usage: linear_regression <input file> [<iterations> <mode>]", file=sys.stderr)
         sys.exit(-1)
 
-    spark = SparkSession\
-        .builder\
-        .appName("linear_regression")\
-        .getOrCreate()
+    lr = 0.02
 
-    points = spark.read.text(sys.argv[1]).rdd.map(lambda r: r[0])\
-        .mapPartitions(readPointBatch).cache()
+    try:
+        mode = sys.argv[3]
+    except:
+        mode = ''
 
-    print(points.count())
-    iterations = int(sys.argv[3])
-    N = int(sys.argv[2])
-    # param = 2 * np.random.ranf(size=(D+1, 1)) - 1
-    # 测试使用参数
-    param = np.array([[0.5], [0.5], [0]])
-
-    # 标准化
-    mean = points.map(lambda m: m[:, 1:].sum(0)).sum()/N
-    std = np.sqrt(points.map(lambda m: ((m[:, 1:]-mean)**2).sum(0)).sum()/N)
-    mean = mean.reshape(D, 1)
-    std = std.reshape(D, 1)
-    points = points.map(lambda m: standardize(m))
-
-    print("Initial param:\n" + str(param))
-
-    start = time.time()
-
-    for i in range(iterations):
-        print("On iteration %i" % (i + 1))
-        grad = points.map(lambda m: gradient(m, param)
-                          ).reduce(add).reshape(D+1, 1)
-        param -= grad*lr/N
-        print("param:\n", param, '\n')
-    end = time.time()
-
-    w, b = recover(param[:-1], param[-1])
-    print("Final w:\n" + str(w))
-    print("Final b:\n" + str(b))
-    print("time: " + str(end - start)+' s')
-
-    spark.stop()
+    PySparkLR(sys.argv[1], iterations=sys.argv[2],
+              mode=mode).linearRegression(lr=lr, standardization=True)

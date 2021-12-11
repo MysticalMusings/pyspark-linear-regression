@@ -1,6 +1,7 @@
-points*.txt
+/points
 *words*
 test*
 /.vscode
-/result
+/results
 /tmp
+/__pycache__
