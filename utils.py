@@ -6,79 +6,97 @@ import sys
 import os
 
 
-def generate_points(N, D):
-    w = np.array([[5], [1], [20], [1000], [10000]])
-    b = 100
-    rng = np.array([[200, 20], [100, 10], [1, 0.1], [200, 20], [1000, 60]])
+def generate_points(N, D, w, b, rng, delta=0.03):
     normal = True
 
     def generator(normal=True):
         i = 0
         steps = (rng[:, 0] - rng[:, 1])/N
         x = np.zeros_like(rng[:, 0]).astype('float')
+        # w_h = w[:, :1].copy()
         while i < N:
             if normal:
                 for j in range(D):
                     x[j] = np.random.normal(rng[j, 0], rng[j, 1])
+                    # w_h[j] = np.random.normal(w[j, 0], w[j, 1])
                 y = w.T@x + b
             else:
                 x = steps*i + rng[:, 0]
                 y = w.T@x + b
-            y += np.random.normal(0, 1)*sy
+            # noise = np.sqrt(w[:, 0].T@rng[:, 0]+b)
+            y += np.random.normal(0, delta) * y
             yield y, x
             i += 1
 
-    with open('points/{0}_{1}.txt'.format(N, D), 'w') as f:
+    with open(f'points/{N}_{D}.txt', 'w') as f:
         for y, x in generator(normal):
-            # y += y * (random.random() * 2 - 1)/4
             f.write(str(y[0])+' '+' '.join(x[:D].astype('str'))+'\n')
-        NEWLINE_SIZE_IN_BYTES = 2  # 2 on Windows?
-        f.seek(0, os.SEEK_END)  # Go to the end of the file.
-        # Go backwards one byte from the end of the file.
-        f.seek(f.tell() - NEWLINE_SIZE_IN_BYTES, os.SEEK_SET)
-        f.truncate()  # Truncate the file to this point.
 
 
-def plot_gradient(points, W, B):
+def plot_gradient(points, wb):
+    def calc_loss(_w, _b):
+        y_h = _w*x + _b
+        return np.sum((y_h-y)**2)/y.shape[0]
+
     fig = plt.figure()  # 定义新的三维坐标轴
     ax = plt.axes(projection='3d')
 
+    w = wb[:, 0]
+    b = wb[:, 1]
+    y = points[:, 0]
+    x = points[:, 1]
+
     # 定义三维数据
-    xx = np.arange(-5, 5, 0.5)
-    yy = np.arange(-5, 5, 0.5)
-    X, Y = np.meshgrid(xx, yy)
-    Z = np.sin(X)+np.cos(Y)
+    ww = np.linspace(3*w.min()-w.max(), 3*w.max()-w.min(), 100)
+    bb = np.linspace(3*b.min()-b.max(), 3*b.max()-b.min(), 100)
+    # ww = np.linspace(w.min(), w.max(), 100)
+    # bb = np.linspace(b.min(), b.max(), 100)
+    W, B = np.meshgrid(ww, bb)
+    L = np.zeros_like(W)
+    for i in range(W.shape[0]):
+        for j in range(W.shape[1]):
+            L[i, j] = calc_loss(W[i, j], B[i, j])
 
     # 作图
-    ax.plot_surface(X, Y, Z, cmap='rainbow')
+    ax.set_xlabel('W')
+    ax.set_ylabel('b')
+    ax.set_zlabel('loss')
+    ax.plot_surface(W, B, L, cmap='rainbow')
     # 等高线图，要设置offset，为Z的最小值
-    ax.contour(X, Y, Z, zdim='z', offset=-2, cmap='rainbow')
+    # ax.contour(W, B, L, zdim='z', cmap='rainbow')
 
-    z = np.linspace(0, 13, 1000)
-    x = 5*np.sin(z)
-    y = 5*np.cos(z)
-    zd = 13*np.random.random(100)
-    xd = 5*np.sin(zd)
-    yd = 5*np.cos(zd)
-    ax.scatter3D(xd, yd, zd, cmap='Blues')  # 绘制散点图
-    ax.plot3D(x, y, z, 'gray')  # 绘制空间曲线
+    # zd = 13*np.random.random(100)
+    # xd = 5*np.sin(zd)
+    # yd = 5*np.cos(zd)
+    # ax.scatter3D(xd, yd, zd, cmap='Blues')  # 绘制散点图
+
+    l = np.zeros_like(w)
+    for i in range(l.size):
+        l[i] = calc_loss(w[i], b[i])
+
+    # 防止与曲面重合（试试效果
+    offset = (l.max()-l.min())*0.02
+    # l += offset
+    ax.scatter3D(w, b, l, color='r', marker='*')  # 绘制空间曲线
     plt.show()
 
 
-def plot_line(points_path, wb_path):
-    points = points_fromtxt(points_path)
-    w, b = wb_fromtxt(wb_path)
+def plot_line(points, wb):
     yd = points[:, 0].T
     xd = points[:, 1].T
-    x = np.linspace(xd.min(), xd.max(), 1000)
+    w = wb[-1, :-1]
+    b = wb[-1, -1]
+    x = np.linspace(xd.min(), xd.max(), 3)
     y = w*x + b
     plt.scatter(xd, yd, cmap='Blues')  # 绘制散点图
     plt.plot(x, y, 'k-')  # 绘制空间曲线
     plt.show()
 
 
-def points_fromtxt(file):
+def data_fromtxt(file):
     strs = list(open(file, 'r').read().split('\n'))
+    if strs[-1] == '':
+        strs = strs[:-1]
     D = len(strs[1].split(' '))
     matrix = np.zeros((len(strs), D))
     for i, s in enumerate(strs):
@@ -87,14 +105,10 @@ def points_fromtxt(file):
     return np.array(matrix)
 
 
-def wb_fromtxt(file):
-    pass
-
-
 if __name__ == '__main__':
-    # x = data[:, 1:].T
-    # y = data[:, :1]
-    # n = data.shape[0]
-    # y_h = x.T@w_h + b_h
-    # loss = np.sum((y_h-y)**2)/n
-    plot_line(sys.argv[1], 9.72408131, 263.7276463358178)
+    # points = data_fromtxt('D:\\download\\10000_1.txt')
+    # wb = data_fromtxt('D:\\download\\yarn_100_weights.txt')
+    points = data_fromtxt(sys.argv[1])
+    wb = data_fromtxt('results/weights.txt')
+    plot_line(points, wb)
+    plot_gradient(points, wb)

@@ -19,7 +19,8 @@ class PySparkLR:
         except:
             iterations = 10
 
-        modeInPath = mode.replace('[', '').replace(']', '')
+        # 去除mode参数中的特殊字符
+        modeInPath = mode.replace('[', '').replace(']', '').replace('*', 'A')
         self.outputTimePath = '/results/{}/{}_{}_time.txt'.format(
             filename, modeInPath, iterations)
         self.outputWeightsPath = '/results/{}/{}_{}_weights.txt'.format(
@@ -42,10 +43,6 @@ class PySparkLR:
         X = np.vstack([X, np.ones((1, X.shape[1]))])
         Y_h = X.T@param
         return (X@(Y_h - Y)).sum(1)
-
-    def add(self, x, y):
-        x += y
-        return x
 
     def standardize(self, points):
         def process(matrix):
@@ -113,7 +110,7 @@ class PySparkLR:
         for i in range(self.iterations):
             print("On iteration %i" % (i + 1))
             grad = points.map(lambda m: self.gradient(m, param)
-                              ).reduce(self.add).reshape(self.D+1, 1)
+                              ).reduce(lambda x, y: x+y).reshape(self.D+1, 1)
             param -= grad*lr/self.N
             print("param:\n", param, '\n')
             if standardization:
@@ -150,7 +147,7 @@ class PySparkLR:
 
 if __name__ == "__main__":
 
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print(
             "Usage: linear_regression <input file> [<iterations> <mode>]", file=sys.stderr)
         sys.exit(-1)
