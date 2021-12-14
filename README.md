@@ -12,7 +12,7 @@
 ````shell
 ```
 Usage: 
-regression.py <input_file> <iteration_time> <mode>
+regression.py <input_file> [<iteration_time> <mode>]
 ```
 ````
 

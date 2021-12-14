@@ -76,8 +76,47 @@ def plot_gradient(points, wb):
 
     # 防止与曲面重合（试试效果
     offset = (l.max()-l.min())*0.02
-    # l += offset
-    ax.scatter3D(w, b, l, color='r', marker='*')  # 绘制空间曲线
+    l += offset
+    ax.plot3D(w, b, l, color='r')  # 绘制空间曲线
+    plt.show()
+
+
+def plot_loss(L):
+    def check_monotone(loss):
+        stop_time = None
+        is_monotone = True
+        for i in range(loss.size-1):
+            if loss[i] < loss[i+1]:
+                is_monotone = False
+            if is_monotone and int(loss[i]) == int(loss[i+1]):
+                stop_time = i
+        return is_monotone, stop_time
+    max = -1
+    plt.figure()
+    max_stop_time = -1
+    max_size = -1
+    for label in L.keys():
+        loss = L[label][0]
+        # 限制xy轴坐标范围，避免梯度爆炸的情况
+        is_monotone, stop_time = check_monotone(loss)
+        if loss.size > max_size:
+            max_size = loss.size
+        if is_monotone:
+            if loss.max() > max:
+                max = loss.max()
+            if stop_time:
+                if stop_time > max_stop_time:
+                    max_stop_time = stop_time
+            else:
+                stop_time = loss.size + 1
+        plt.plot([i for i in range(1, loss.size+1)],
+                 loss, L[label][1], label=label)
+    # 设置中文字体
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.ylim((0, max+0.1*max))
+    plt.xlim((0, max_stop_time + int((max_size-max_stop_time)*0.3)))
+    plt.ylabel('Loss')
+    plt.legend()
     plt.show()
 
 
@@ -108,7 +147,9 @@ def data_fromtxt(file):
 if __name__ == '__main__':
     # points = data_fromtxt('D:\\download\\10000_1.txt')
     # wb = data_fromtxt('D:\\download\\yarn_100_weights.txt')
-    points = data_fromtxt(sys.argv[1])
-    wb = data_fromtxt('results/weights.txt')
-    plot_line(points, wb)
-    plot_gradient(points, wb)
+    # points = data_fromtxt(sys.argv[1])
+    # wb = data_fromtxt('results/weights.txt')
+    # plot_line(points, wb)
+    # plot_gradient(points, wb)
+    plot_loss({"标准化": [data_fromtxt('results/loss_with_stdize.txt'), 'b-'],
+              "非标准化": [data_fromtxt('results/loss_without_stdize.txt'), 'r-']})

@@ -1,8 +1,10 @@
-/points
+/points/*_10*.txt
+/points/1000*.txt
+/results/*improve*
+/.vscode
+/tmp
+/__pycache__
+
 generate*
 *words*
 test*
-/.vscode
-/results
-/tmp
-/__pycache__

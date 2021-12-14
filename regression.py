@@ -1,8 +1,9 @@
 import sys
 import numpy as np
 import os
+import pyspark
 from pyspark.sql import SparkSession
-from pyspark import SparkConf
+from pyspark import SparkConf, SparkContext
 import time
 
 
@@ -32,9 +33,14 @@ class PySparkLR:
     def readPointBatch(self, iterator):
         strs = list(iterator)
         matrix = np.zeros((len(strs), self.D + 1))
+        rowToDelete = []
         for i, s in enumerate(strs):
-            matrix[i] = np.fromstring(
-                s.replace(',', ' '), dtype=np.float32, sep=' ')
+            try:
+                matrix[i] = np.fromstring(
+                    s.replace(',', ' '), dtype=np.float32, sep=' ')
+            except:
+                rowToDelete.append(i)
+        matrix = np.delete(matrix, rowToDelete, axis=0)
         return [matrix]
 
     def gradient(self, matrix, param):
@@ -55,7 +61,7 @@ class PySparkLR:
             (m[:, 1:]-mean)**2).sum(0)).sum()/self.N)
         self.mean = mean.reshape(self.D, 1)
         self.std = std.reshape(self.D, 1)
-        return points.map(lambda m: process(m))
+        return points.map(lambda m: process(m)).persist(pyspark.StorageLevel.MEMORY_AND_DISK)
 
     def recover(self, param):
         param = param.copy()
@@ -66,28 +72,26 @@ class PySparkLR:
         return param
 
     def linearRegression(self, lr=0.02, standardization=True):
-        if self.mode != "default" and self.mode != "yarn":
-            conf = SparkConf().setMaster(self.mode)
-            spark = SparkSession.builder.config(conf=conf).getOrCreate()
-        else:
-            spark = SparkSession\
-                .builder\
-                .appName("linear_regression")\
-                .getOrCreate()
-        Path = spark.sparkContext._jvm.org.apache.hadoop.fs.Path
-        FileSystem = spark.sparkContext._jvm.org.apache.hadoop.fs.FileSystem
+        start = time.time()
+
+        conf = SparkConf().setAppName("linear_regression")
+        # if self.mode != "default" and self.mode != "yarn":
+        #     conf.setMaster(self.mode)
+        sc = SparkContext(conf=conf).getOrCreate()
+
+        Path = sc._jvm.org.apache.hadoop.fs.Path
+        FileSystem = sc._jvm.org.apache.hadoop.fs.FileSystem
 
         # create FileSystem and Path objects
-        hadoopConfiguration = spark.sparkContext._jsc.hadoopConfiguration()
+        hadoopConfiguration = sc._jsc.hadoopConfiguration()
         hadoopFs = FileSystem.get(hadoopConfiguration)
 
         # create datastream and write out file
         outputTimeStream = hadoopFs.create(Path(self.outputTimePath))
         outputWeightsStream = hadoopFs.create(Path(self.outputWeightsPath))
 
-        start = time.time()
-        points = spark.read.text(self.input).rdd.map(lambda r: r[0])\
-            .mapPartitions(self.readPointBatch).cache()
+        points = sc.textFile(self.input).map(
+            lambda r: r[0]).mapPartitions(self.readPointBatch).cache()
 
         # param = 2 * np.random.ranf(size=(D+1, 1)) - 1
         # 测试使用参数
@@ -142,7 +146,6 @@ class PySparkLR:
 
         outputTimeStream.close()
         outputWeightsStream.close()
-        spark.stop()
 
 
 if __name__ == "__main__":

@@ -43,7 +43,8 @@ def linear_regression(data, iterations=100, lr=0.004, stdize=False, mathod=False
     y_h = np.zeros_like(y)
 
     f = open('results/weights.txt', 'w')
-    f2 = open('results/loss.txt', 'w')
+    f2 = open(
+        'results/loss_{}.txt'.format('with_stdize' if stdize else 'without_stdize'), 'w')
     for i in range(iterations):
         print("On iteration %i" % (i + 1))
         y_h = x.T@w + b
@@ -81,8 +82,8 @@ def linear_regression(data, iterations=100, lr=0.004, stdize=False, mathod=False
         y_h = data[:, 1:]@w + b
         print('loss: ', loss(y_h, y))
         # 用scipy验证结果
-        print(stats.linregress(data[:, 1:].reshape(
-            data[:, 1:].size), data[:, :1].reshape(data[:, :1].size)))
+        # print(stats.linregress(data[:, 1:].reshape(
+        #     data[:, 1:].size), data[:, :1].reshape(data[:, :1].size)))
     return w, b
 
 
@@ -90,6 +91,6 @@ if __name__ == '__main__':
     start = time.time()
     data = data_fromtxt(sys.argv[1])
     w, b = linear_regression(
-        data, int(sys.argv[2]), lr=0.02, stdize=1, mathod=1)
+        data, int(sys.argv[2]), lr=0.002, stdize=1, mathod=1)
     end = time.time()
     print("time: " + str(end - start)+' s')
