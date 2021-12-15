@@ -22,9 +22,9 @@ class PySparkLR:
 
         # 去除mode参数中的特殊字符
         modeInPath = mode.replace('[', '').replace(']', '').replace('*', 'A')
-        self.outputTimePath = '/results/{}/{}_{}_time.txt'.format(
+        self.outputResultPath = '/results/{}/{}_{}_result.txt'.format(
             filename, modeInPath, iterations)
-        self.outputWeightsPath = '/results/{}/{}_{}_weights.txt'.format(
+        self.outputTimePath = '/results/{}/{}_{}_time.txt'.format(
             filename, modeInPath, iterations)
         self.iterations = iterations
         self.N = int(filename.split('_')[0])
@@ -61,7 +61,7 @@ class PySparkLR:
             (m[:, 1:]-mean)**2).sum(0)).sum()/self.N)
         self.mean = mean.reshape(self.D, 1)
         self.std = std.reshape(self.D, 1)
-        return points.map(lambda m: process(m)).persist(pyspark.StorageLevel.MEMORY_AND_DISK)
+        return points.map(lambda m: process(m))
 
     def recover(self, param):
         param = param.copy()
@@ -77,6 +77,8 @@ class PySparkLR:
         conf = SparkConf().setAppName("linear_regression")
         # if self.mode != "default" and self.mode != "yarn":
         #     conf.setMaster(self.mode)
+        # spark = SparkSession.builder.config(conf=conf).getOrCreate()
+        # sc = spark.sparkContext
         sc = SparkContext(conf=conf).getOrCreate()
 
         Path = sc._jvm.org.apache.hadoop.fs.Path
@@ -87,11 +89,11 @@ class PySparkLR:
         hadoopFs = FileSystem.get(hadoopConfiguration)
 
         # create datastream and write out file
-        outputTimeStream = hadoopFs.create(Path(self.outputTimePath))
-        outputWeightsStream = hadoopFs.create(Path(self.outputWeightsPath))
+        resultStream = hadoopFs.create(Path(self.outputResultPath))
+        timeStream = hadoopFs.create(Path(self.outputTimePath))
 
-        points = sc.textFile(self.input).map(
-            lambda r: r[0]).mapPartitions(self.readPointBatch).cache()
+        points = sc.textFile(self.input).mapPartitions(
+            self.readPointBatch).persist(pyspark.StorageLevel.MEMORY_AND_DISK)
 
         # param = 2 * np.random.ranf(size=(D+1, 1)) - 1
         # 测试使用参数
@@ -106,29 +108,33 @@ class PySparkLR:
         checkpoint = time.time()
         prepTime = timeStr.format("prepTime", str(checkpoint-start))
         print(prepTime)
-        outputTimeStream.write(prepTime.encode('utf-8'))
+        resultStream.write(prepTime.encode('utf-8'))
 
         print("Initial param:\n" + str(param))
 
         # 迭代
         for i in range(self.iterations):
+            t = time.time()
             print("On iteration %i" % (i + 1))
             grad = points.map(lambda m: self.gradient(m, param)
                               ).reduce(lambda x, y: x+y).reshape(self.D+1, 1)
             param -= grad*lr/self.N
             print("param:\n", param, '\n')
-            if standardization:
-                tmp = self.recover(param)
-            else:
-                tmp = param
-            outputWeightsStream.write(' '.join(str(x)
-                                      for x in tmp.reshape(tmp.size)).encode('utf-8'))
-            outputWeightsStream.write('\n'.encode('utf-8'))
+            # if standardization:
+            #     tmp = self.recover(param)
+            # else:
+            #     tmp = param
+            # timeStream.write(' '.join(str(x)
+            #                           for x in tmp.reshape(tmp.size)).encode('utf-8'))
+            # timeStream.write('\n'.encode('utf-8'))
+            iterTime = time.time()-t
+            timeStream.write(f'{iterTime}\n'.encode('utf-8'))
+            print(f'time per iter: {iterTime}s')
 
         end = time.time()
         iterateTime = timeStr.format("iterateTime", str(end-checkpoint))
         print(iterateTime)
-        outputTimeStream.write(iterateTime.encode('utf-8'))
+        resultStream.write(iterateTime.encode('utf-8'))
 
         if standardization:
             param = self.recover(param)
@@ -138,14 +144,14 @@ class PySparkLR:
 
         totalTime = timeStr.format("totalTime", str(end-start))
         print(totalTime)
-        outputTimeStream.write(totalTime.encode('utf-8'))
-        outputTimeStream.write(
+        resultStream.write(totalTime.encode('utf-8'))
+        resultStream.write(
             ("Final w:\n" + str(param[:-1])).encode('utf-8'))
-        outputTimeStream.write(
+        resultStream.write(
             ("\nFinal b:\n" + str(param[-1])).encode('utf-8'))
 
-        outputTimeStream.close()
-        outputWeightsStream.close()
+        resultStream.close()
+        timeStream.close()
 
 
 if __name__ == "__main__":

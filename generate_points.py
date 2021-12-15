@@ -2,7 +2,7 @@ from utils import *
 import numpy as np
 import time
 import sys
-from non_spark import linear_regression
+from non_spark_regression import linear_regression
 
 N = 10000
 D = 10
