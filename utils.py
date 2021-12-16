@@ -81,40 +81,47 @@ def plot_gradient(points, wb):
     plt.show()
 
 
-def plot_loss(L):
+def plot_loss(L, log=False):
     def check_monotonic(loss):
         stop_time = None
         is_monotonic = True
+        flag = False
         for i in range(loss.size-1):
             if loss[i] < loss[i+1]:
                 is_monotonic = False
-            if is_monotonic and int(loss[i]) == int(loss[i+1]):
+            if is_monotonic and int(loss[i]) == int(loss[i+1]) and not flag:
                 stop_time = i
+                flag = True
         return is_monotonic, stop_time
-    max = -1
+    max_loss = -1
     plt.figure()
+    if log:
+        plt.axes(yscale="log")
     max_stop_time = -1
     max_size = -1
     for label in L.keys():
         loss = L[label][0]
+        style = L[label][1]
         # 限制xy轴坐标范围，避免梯度爆炸的情况
         is_monotonic, stop_time = check_monotonic(loss)
         if loss.size > max_size:
             max_size = loss.size
-        if is_monotonic:
-            if loss.max() > max:
-                max = loss.max()
+        if is_monotonic or len(L.keys()) < 2:
+            if loss.max() > max_loss:
+                max_loss = loss.max()
             if stop_time:
                 if stop_time > max_stop_time:
                     max_stop_time = stop_time
             else:
                 stop_time = loss.size + 1
         plt.plot([i for i in range(1, loss.size+1)],
-                 loss, L[label][1], label=label)
+                 loss, style, label=label)
+    if max_stop_time == -1:
+        max_stop_time = stop_time
     # 设置中文字体
     plt.rcParams['font.sans-serif'] = ['SimHei']
-    plt.ylim((0, max+0.1*max))
-    plt.xlim((0, max_stop_time + max(int((max_size-max_stop_time)*0.1), 0)))
+    plt.ylim((0, max_loss+0.1*max_loss))
+    plt.xlim((0, max_stop_time + max(int((max_size-max_stop_time)*0.2), 0)))
     plt.ylabel('Loss')
     plt.legend()
     plt.show()
@@ -129,6 +136,16 @@ def plot_line(points, wb):
     y = w*x + b
     plt.scatter(xd, yd, cmap='Blues')  # 绘制散点图
     plt.plot(x, y, 'k-')  # 绘制空间曲线
+    plt.show()
+
+
+def plot_lines(lines):
+    plt.figure()
+    for label in lines.keys():
+        line = lines[label][0]
+        line_style = lines[label][1]
+        plt.plot(line, line_style, label=label)
+    plt.legend()
     plt.show()
 
 
@@ -147,9 +164,11 @@ def data_fromtxt(file):
 if __name__ == '__main__':
     # points = data_fromtxt('D:\\download\\10000_1.txt')
     # wb = data_fromtxt('D:\\download\\yarn_100_weights.txt')
-    points = data_fromtxt(sys.argv[1])
-    wb = data_fromtxt('results/weights.txt')
-    plot_line(points, wb)
-    plot_gradient(points, wb)
-    plot_loss({"标准化": [data_fromtxt('results/loss_with_stdize.txt'), 'b-'],
-              "非标准化": [data_fromtxt('results/loss_without_stdize.txt'), 'r-']})
+    # points = data_fromtxt(sys.argv[1])
+    # wb = data_fromtxt('results/weights.txt')
+    # plot_line(points, wb)
+    # plot_gradient(points, wb)
+    # plot_loss({"非标准化": [data_fromtxt('results/loss_without_stdize.txt'), 'r-']}, log=True)
+    plot_lines({"local[1]": [data_fromtxt('results/local1_100_time.txt'), 'b-'],
+               "local[*]": [data_fromtxt('results/localA_100_time.txt'), 'r-'],
+               "yarn": [data_fromtxt('results/yarn_100_time.txt'), 'k-']})
